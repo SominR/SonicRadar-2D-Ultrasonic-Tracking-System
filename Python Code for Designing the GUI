@@ -1,0 +1,103 @@
+import serial
+import re
+import math
+import cv2
+import numpy as np
+from PIL import Image, ImageDraw
+
+arduino_port = '/dev/cu.usbmodem101'
+ser = serial.Serial(arduino_port, 9600, timeout=1)
+
+NUM_SENSORS = 8
+SENSOR_RANGE = 30
+THRESHOLD_DISTANCE = 10
+NUM_MEASUREMENTS = 10
+
+last_measurements = {i: [] for i in range(NUM_SENSORS)}
+
+def read_distances():
+    line = ser.readline().decode('utf-8')
+    match = re.match(r'Distances: \[(.*)\]', line)
+    if match:
+        distances_str = match.group(1)
+        distances = [min(int(dist), SENSOR_RANGE) for dist in distances_str.split(', ')]
+        return distances
+    else:
+        return None
+
+def update_last_measurements(sensor_index, distance):
+    measurements = last_measurements[sensor_index]
+    measurements.append(distance)
+    if len(measurements) > NUM_MEASUREMENTS:
+        measurements.pop(0)
+
+def get_average_distance(sensor_index):
+    measurements = last_measurements[sensor_index]
+    if measurements:
+        return sum(measurements) / len(measurements)
+    else:
+        return None
+
+def create_radar_image(distances):
+    image_size = 600
+    img = Image.new('RGB', (image_size, image_size), (0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    center = (image_size // 2, image_size // 2)
+
+    for r in range(50, image_size // 2, 50):
+        start_angle = 0
+        end_angle = 360
+        num_points = 100
+        for angle in np.linspace(start_angle, end_angle, num_points):
+            x = int(center[0] - r * math.cos(math.radians(angle)))
+            y = int(center[1] + r * math.sin(math.radians(angle)))
+            draw.point((x, y), fill=(100, 100, 100))
+
+    for i in range(len(distances)):
+        angle = -90 + i * (360 / NUM_SENSORS)
+        x = int(center[0] - (image_size // 2 - 20) * math.cos(math.radians(angle)))
+        y = int(center[1] + (image_size // 2 - 20) * math.sin(math.radians(angle)))
+        draw.text((x, y), str(NUM_SENSORS - i), fill=(100, 100, 100))
+        draw.point((x, y), fill=(255, 0, 255))
+
+    for i, distance in enumerate(distances):
+        normalized_distance = min(distance, SENSOR_RANGE) / SENSOR_RANGE
+        angle = -90 + i * (360 / NUM_SENSORS)
+        radius = normalized_distance * (image_size // 2 - 50)
+        x = int(center[0] - radius * math.cos(math.radians(angle)))
+        y = int(center[1] + radius * math.sin(math.radians(angle)))
+        x = image_size - x
+        line_color = (0, 0, 255) if distance <= THRESHOLD_DISTANCE else (0, 255, 0)
+
+        update_last_measurements(i, distance)
+        avg_distance = get_average_distance(i)
+
+        draw.line([center[0], center[1], x, y], fill=line_color, width=3)
+
+        if avg_distance is not None:
+            avg_radius = avg_distance / SENSOR_RANGE * (image_size // 2 - 50)
+            avg_x = int(center[0] - avg_radius * math.cos(math.radians(angle)))
+            avg_y = int(center[1] + avg_radius * math.sin(math.radians(angle)))
+            avg_x = image_size - avg_x
+            draw.point((avg_x, avg_y), fill=(255, 0, 255))
+            draw.text((avg_x, avg_y), f"{int(avg_distance)}", fill=(255, 255, 255))
+
+    rotated_img = img.rotate(90)
+
+    return np.array(rotated_img)
+
+try:
+    while True:
+        distances = read_distances()
+        if distances is not None:
+            print("Distances:", distances)
+            radar_img = create_radar_image(distances)
+            cv2.imshow('TMT Assignment - 2D SONAR Room Scanner', radar_img)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+except KeyboardInterrupt:
+    ser.close()
+    print("Serial port closed.")
+
+cv2.destroyAllWindows()
