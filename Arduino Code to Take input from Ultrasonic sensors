@@ -1,0 +1,38 @@
+const int numSensors = 8;
+
+const int trigPins[numSensors] = {28,36,32,40,46,44,38,34};
+const int echoPins[numSensors] = {29,37,33,41,47,45,39,35};
+
+long durations[numSensors];
+int distances[numSensors];
+
+void setup() {
+  for (int i = 0; i < numSensors; i++) {
+    pinMode(trigPins[i], OUTPUT);  
+    pinMode(echoPins[i], INPUT);   
+  }
+  Serial.begin(9600);  
+}
+void loop() {
+  for (int i = 0; i < numSensors; i++) {
+    digitalWrite(trigPins[i], LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPins[i], HIGH);
+    delayMicroseconds(2);
+    digitalWrite(trigPins[i], LOW);
+
+    durations[i] = pulseIn(echoPins[i], HIGH);
+
+    distances[i] = durations[i] * 0.034 / 2;
+  }
+
+  Serial.print("Distances: [");
+  for (int i = 0; i < numSensors; i++) {
+    Serial.print(distances[i]);
+    if (i < numSensors - 1) {
+      Serial.print(", ");
+    }
+  }
+  Serial.println("]");
+  delay(500);  
+}
